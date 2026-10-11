@@ -376,6 +376,7 @@ def simulate_transient_junction_temperature(
     *,
     fixed_case_temperature_c: float,
     pulse_current_a: float,
+    switching_current_a: float,
     bus_voltage_v: float,
     t_on_s: float,
     t_off_s: float,
@@ -421,13 +422,13 @@ def simulate_transient_junction_temperature(
 
     e_on_j = calculate_switching_energy(
         bus_voltage_v,
-        pulse_current_a,
+        switching_current_a,
         rise_time_s,
         switching_correction_factor,
     )
     e_off_j = calculate_switching_energy(
         bus_voltage_v,
-        pulse_current_a,
+        switching_current_a,
         fall_time_s,
         switching_correction_factor,
     )
@@ -622,12 +623,8 @@ rth_sa_c_per_w = st.sidebar.number_input(
     step=0.05,
 )
 
-devices_on_shared_sink = st.sidebar.number_input(
-    "Identical MOSFETs Sharing Heatsink",
-    min_value=1,
-    value=1,
-    step=1,
-)
+# This dashboard now models a single MOSFET/heatsink path.
+devices_on_shared_sink = 1
 
 st.sidebar.header("3. Steady-State Operating Conditions")
 
@@ -794,7 +791,7 @@ with power_col3.container(border=True):
 
 with power_col4.container(border=True):
     st.metric(
-        "Total Heat into Shared Sink",
+        "Total Heat into Heatsink",
         f"{steady_state['total_sink_loss_w']:.2f} W",
     )
 
@@ -888,8 +885,7 @@ with st.expander("Steady-State Calculation Details"):
             f"**{target_device_loss_w:.3f} W**"
         )
         st.write(
-            "The heatsink temperature rise includes all identical "
-            "MOSFETs sharing the sink."
+            "The heatsink temperature rise is calculated for one MOSFET."
         )
 
 visual_col1, visual_col2 = st.columns(2)
@@ -967,25 +963,14 @@ st.info(
     "combined steady-state base temperature plus short-term junction ripple."
 )
 
-transient_col1, transient_col2, transient_col3 = st.columns(3)
+st.caption(
+    "Phase 2 uses the ON-state drain current, switching-transition current, "
+    "and DC-bus voltage entered in the left sidebar."
+)
+
+transient_col1, transient_col2 = st.columns(2)
 
 with transient_col1.container(border=True):
-    pulse_current_a = st.number_input(
-        "Pulse Drain Current (A)",
-        min_value=0.0,
-        value=75.0,
-        step=0.1,
-        key="pulse_current",
-    )
-    transient_bus_voltage_v = st.number_input(
-        "Pulse DC-Bus Voltage (V)",
-        min_value=0.0,
-        value=float(bus_voltage_v),
-        step=0.1,
-        key="transient_bus_voltage",
-    )
-
-with transient_col2.container(border=True):
     t_on_ms = st.number_input(
         "ON Duration (ms)",
         min_value=0.000001,
@@ -1008,7 +993,7 @@ with transient_col2.container(border=True):
         step=1,
     )
 
-with transient_col3.container(border=True):
+with transient_col2.container(border=True):
     case_temperature_source = st.radio(
         "Fixed Case Temperature Source",
         [
@@ -1029,12 +1014,6 @@ with transient_col3.container(border=True):
             value=80.0,
             step=0.5,
         )
-
-if transient_bus_voltage_v > vds_max_v:
-    st.error(
-        f"Transient bus voltage ({transient_bus_voltage_v:.1f} V) "
-        f"exceeds the entered device VDS rating ({vds_max_v:.1f} V)."
-    )
 
 st.subheader("User-Defined Foster Thermal Network")
 
@@ -1132,8 +1111,9 @@ t_off_s = t_off_ms * 1e-3
 
 transient_result = simulate_transient_junction_temperature(
     fixed_case_temperature_c=fixed_case_temperature_c,
-    pulse_current_a=pulse_current_a,
-    bus_voltage_v=transient_bus_voltage_v,
+    pulse_current_a=conduction_current_a,
+    switching_current_a=switching_current_a,
+    bus_voltage_v=bus_voltage_v,
     t_on_s=t_on_s,
     t_off_s=t_off_s,
     number_of_pulses=int(number_of_pulses),
