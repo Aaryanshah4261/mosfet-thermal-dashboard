@@ -623,7 +623,7 @@ rth_sa_c_per_w = st.sidebar.number_input(
     step=0.05,
 )
 
-# This dashboard now models a single MOSFET/heatsink path.
+# Single-MOSFET thermal path used throughout this dashboard.
 devices_on_shared_sink = 1
 
 st.sidebar.header("3. Steady-State Operating Conditions")
@@ -958,39 +958,76 @@ st.header("Phase 2: Transient Junction-to-Case Simulation")
 
 st.info(
     "The Foster network describes transient thermal behavior from the "
-    "junction to the case. The case temperature is therefore treated as a "
-    "fixed boundary condition. Use the Phase 1 case temperature for a "
-    "combined steady-state base temperature plus short-term junction ripple."
+    "junction to the case. Phase 2 uses the current, DC-bus voltage, "
+    "switching frequency, and duty cycle entered in the sidebar. "
+    "The case temperature is treated as a fixed boundary condition."
 )
 
-st.caption(
-    "Phase 2 uses the ON-state drain current, switching-transition current, "
-    "and DC-bus voltage entered in the left sidebar."
-)
+# ------------------------------------------------------------
+# Pulse timing is derived from sidebar switching frequency + duty cycle
+# ------------------------------------------------------------
+if switching_frequency_hz <= 0.0:
+    st.error(
+        "Switching frequency must be greater than 0 Hz "
+        "to run the transient simulation."
+    )
+    st.stop()
+
+if conduction_mode != "ON-State Current + Duty Cycle":
+    st.error(
+        "Phase 2 requires 'ON-State Current + Duty Cycle' mode because "
+        "the ON and OFF durations are calculated from duty cycle."
+    )
+    st.stop()
+
+if duty_cycle <= 0.0 or duty_cycle >= 1.0:
+    st.error(
+        "For the repeated-pulse transient simulation, duty cycle must be "
+        "greater than 0% and less than 100%."
+    )
+    st.stop()
+
+period_s = 1.0 / switching_frequency_hz
+t_on_s = duty_cycle * period_s
+t_off_s = (1.0 - duty_cycle) * period_s
+
+period_us = period_s * 1e6
+t_on_us = t_on_s * 1e6
+t_off_us = t_off_s * 1e6
 
 transient_col1, transient_col2 = st.columns(2)
 
 with transient_col1.container(border=True):
-    t_on_ms = st.number_input(
-        "ON Duration (ms)",
-        min_value=0.000001,
-        value=1.0,
-        step=0.1,
-        format="%.6f",
+    st.metric(
+        "Switching Frequency",
+        f"{switching_frequency_khz:.2f} kHz",
     )
-    t_off_ms = st.number_input(
-        "OFF Duration (ms)",
-        min_value=0.000001,
-        value=1.0,
-        step=0.1,
-        format="%.6f",
+    st.metric(
+        "Switching Period",
+        f"{period_us:.3f} µs",
     )
+    st.metric(
+        "ON Duration",
+        f"{t_on_us:.3f} µs",
+    )
+    st.metric(
+        "OFF Duration",
+        f"{t_off_us:.3f} µs",
+    )
+
     number_of_pulses = st.number_input(
         "Number of Pulses",
         min_value=1,
         max_value=1000,
-        value=3,
+        value=100,
         step=1,
+    )
+
+    simulation_duration_s = int(number_of_pulses) * period_s
+
+    st.metric(
+        "Simulation Duration",
+        f"{simulation_duration_s * 1000.0:.3f} ms",
     )
 
 with transient_col2.container(border=True):
@@ -1014,6 +1051,12 @@ with transient_col2.container(border=True):
             value=80.0,
             step=0.5,
         )
+
+st.caption(
+    "Phase 2 uses the sidebar ON-state drain current for conduction loss, "
+    "the sidebar switching-transition current for switching energy, and "
+    "the sidebar DC-bus voltage."
+)
 
 st.subheader("User-Defined Foster Thermal Network")
 
@@ -1105,9 +1148,6 @@ if foster_difference_percent > 10.0:
         f"steady-state RθJC by {foster_difference_percent:.1f}%. "
         "Check that the transient network belongs to the same MOSFET."
     )
-
-t_on_s = t_on_ms * 1e-3
-t_off_s = t_off_ms * 1e-3
 
 transient_result = simulate_transient_junction_temperature(
     fixed_case_temperature_c=fixed_case_temperature_c,
@@ -1312,6 +1352,7 @@ st.markdown(
 - The steady-state model includes MOSFET conduction loss, basic switching-overlap loss, and a one-dimensional thermal-resistance path.
 - The linear RDS(on) temperature coefficient is an approximation and should be selected for the intended temperature range.
 - The transient model requires user-provided junction-to-case Foster resistances and time constants.
+- Phase 2 derives ON/OFF pulse duration from the sidebar switching frequency and duty cycle.
 - Phase 2 treats the case temperature as fixed; it is not a complete junction-to-ambient transient model.
 - Body-diode conduction, reverse-recovery loss, output-capacitance loss, gate-drive loss, avalanche energy, busbar parasitics, and thermal spreading are not included.
 - Before using the dashboard for hardware limits, validate it against a manufacturer model, simulation, or measured temperature data.
